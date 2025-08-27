@@ -2,21 +2,49 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Mini RPG Pixel - Chefão</title>
+<title>Mini RPG Pixel - Chefão com Dialogo</title>
 <style>
 canvas { 
     border: 2px solid black; 
     image-rendering: pixelated; 
     background: #88cc88;
 }
+.dialog-box {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 400px;
+    padding: 10px;
+    background: rgba(0,0,0,0.8);
+    color: white;
+    font-family: monospace;
+    border: 2px solid white;
+    border-radius: 10px;
+    display: none;
+}
+.dialog-text {
+    margin-bottom: 5px;
+}
+.dialog-hint {
+    font-size: 12px;
+    text-align: right;
+    opacity: 0.7;
+}
 </style>
 </head>
 <body>
 <canvas id="gameCanvas" width="640" height="480"></canvas>
+<div id="dialog" class="dialog-box">
+    <div id="dialogText" class="dialog-text"></div>
+    <div class="dialog-hint">Pressione Espaço para continuar</div>
+</div>
 
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+const dialogBox = document.getElementById('dialog');
+const dialogText = document.getElementById('dialogText');
 
 const tileSize = 32;
 
@@ -57,6 +85,11 @@ let boss = { x: 10, y: 7, alive:false, hp: 5 };
 // Contador de inimigos mortos
 let enemiesKilled = 0;
 
+// Dialogo
+let dialogs = ["Olá.... Parece que voce está perdido.","test"];
+let dialogIndex = 0;
+let dialogActive = false;
+
 // Mapa 20x15
 const map = [
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
@@ -83,6 +116,10 @@ let keys = {};
 let moveCooldown = 10; 
 let moveCounter = 0;
 
+// Velocidade dos monstros (diminuída)
+let enemyMoveCooldown = 60;
+let enemyMoveCounter = 0;
+
 // Ataque com swing
 let attackSwing = {
     active: false,
@@ -93,7 +130,7 @@ let attackSwing = {
     angle: 0
 };
 
-// Desenha mapa
+// Funções de desenho
 function drawMap() {
     for(let y=0;y<map.length;y++){
         for(let x=0;x<map[y].length;x++){
@@ -107,7 +144,6 @@ function drawMap() {
     }
 }
 
-// Desenha jogador com flip horizontal
 function drawPlayer() {
     ctx.save();
     ctx.translate(player.x*tileSize + tileSize/2, player.y*tileSize + tileSize/2);
@@ -117,42 +153,34 @@ function drawPlayer() {
     ctx.restore();
 }
 
-// Desenha inimigos padrão
 function drawEnemies() {
     enemies.forEach(e=>{
         if(e.alive) ctx.drawImage(sprites.enemy, e.x*tileSize, e.y*tileSize, tileSize, tileSize);
     });
 }
 
-// Desenha chefão
 function drawBoss() {
     if(boss.alive) ctx.drawImage(sprites.boss, boss.x*tileSize, boss.y*tileSize, tileSize, tileSize);
 }
 
-// Desenha espada com swing ajustado
 function drawSwordSwing() {
     if(!attackSwing.active) return;
-
     const distance = 1;
     const targetX = player.x + Math.round(Math.cos(player.angle) * distance);
     const targetY = player.y + Math.round(Math.sin(player.angle) * distance);
-
     const pivotX = targetX*tileSize;      
     const pivotY = targetY*tileSize + tileSize;
-
     attackSwing.angle = attackSwing.startAngle + 
         ((attackSwing.frame / attackSwing.totalFrames) * (attackSwing.endAngle - attackSwing.startAngle));
-
     ctx.save();
     ctx.translate(pivotX, pivotY);
     ctx.rotate(attackSwing.angle);
     ctx.drawImage(sprites.sword, 0, -tileSize, tileSize, tileSize);
     ctx.restore();
-
     attackSwing.frame++;
     if(attackSwing.frame >= attackSwing.totalFrames) attackSwing.active = false;
 
-    // Colisão com inimigos padrão
+    // Colisão com inimigos
     enemies.forEach(e=>{
         if(e.alive && e.x===targetX && e.y===targetY){
             e.hp--;
@@ -160,15 +188,35 @@ function drawSwordSwing() {
                 e.alive=false;
                 enemiesKilled++;
                 console.log("Inimigo morto! Total:", enemiesKilled);
+                if(enemiesKilled>=4 && !boss.alive){
+                    boss.alive=true;
+                    startDialog();
+                }
             }
         }
     });
-
-    // Colisão com boss
     if(boss.alive && boss.x===targetX && boss.y===targetY){
         boss.hp--;
         console.log("Chefão atingido! HP:", boss.hp);
         if(boss.hp<=0) boss.alive=false;
+    }
+}
+
+// Caixa de diálogo
+function startDialog(){
+    dialogActive=true;
+    dialogIndex=0;
+    dialogBox.style.display="block";
+    dialogText.textContent = dialogs[dialogIndex];
+}
+
+function nextDialog(){
+    dialogIndex++;
+    if(dialogIndex>=dialogs.length){
+        dialogActive=false;
+        dialogBox.style.display="none";
+    } else {
+        dialogText.textContent = dialogs[dialogIndex];
     }
 }
 
@@ -177,14 +225,9 @@ function update() {
     ctx.clearRect(0,0,canvas.width,canvas.height);
     drawMap();
     drawEnemies();
-    if(enemiesKilled>=4 && !boss.alive){
-        boss.alive=true;
-    }
     drawBoss();
     drawPlayer();
     drawSwordSwing();
-
-    // Mostra contador
     ctx.fillStyle="black";
     ctx.font="16px Arial";
     ctx.fillText("Inimigos mortos: "+enemiesKilled,10,20);
@@ -195,6 +238,7 @@ function movePlayer() {
     moveCounter++;
     if(moveCounter < moveCooldown) return;
     moveCounter=0;
+    if(dialogActive) return; // travar movimento durante dialogo
 
     let dx=0, dy=0;
     if(keys['ArrowUp']) dy--;
@@ -203,7 +247,6 @@ function movePlayer() {
     if(keys['ArrowRight']) dx++;
 
     player.facingLeft = dx<0;
-
     if(dx!==0 || dy!==0) player.angle = Math.atan2(dy, dx);
 
     let newX = player.x + dx;
@@ -215,8 +258,12 @@ function movePlayer() {
     }
 }
 
-// Movimento inimigos aleatório
+// Movimento inimigos
 function moveEnemies() {
+    enemyMoveCounter++;
+    if(enemyMoveCounter<enemyMoveCooldown) return;
+    enemyMoveCounter=0;
+
     enemies.forEach(e=>{
         if(!e.alive) return;
         const dirs = [
@@ -234,16 +281,14 @@ function moveEnemies() {
 
 // Inicia ataque
 function startAttack() {
-    if(!attackSwing.active){
-        attackSwing.active = true;
-        attackSwing.frame = 0;
-    }
+    if(!attackSwing.active) attackSwing.active=true;
+    attackSwing.frame=0;
 }
 
 // Loop principal
 function gameLoop() {
     movePlayer();
-    if(Math.random()<0.02) moveEnemies();
+    moveEnemies();
     update();
     requestAnimationFrame(gameLoop);
 }
@@ -251,7 +296,10 @@ function gameLoop() {
 // Controles
 window.addEventListener('keydown', (e)=>{
     keys[e.key]=true;
-    if(e.key===' ') startAttack();
+    if(e.key===' ') {
+        if(dialogActive) nextDialog();
+        else startAttack();
+    }
 });
 window.addEventListener('keyup', (e)=>{ keys[e.key]=false; });
 
